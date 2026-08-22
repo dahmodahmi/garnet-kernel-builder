@@ -31,17 +31,6 @@ jobs:
           gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
           device-tree-compiler cpio rsync dos2unix
 
-    - name: Install Clang toolchain
-      run: |
-        mkdir -p toolchains
-        cd toolchains
-        wget -q https://github.com/ZyCromerZ/Clang/releases/download/23.0.0git-20260130-release/Clang-23.0.0git-20260130.tar.gz
-        tar -xzf Clang-23.0.0git-20260130.tar.gz
-        if [ -d "clang/bin" ]; then
-          chmod +x clang/bin/*
-        fi
-        ls -la
-
     - name: Clone kernel source
       run: |
         KERNEL_SRC="${{ github.event.inputs.kernel_source || 'https://github.com/Evolution-X-Devices/kernel_xiaomi_garnet.git' }}"
@@ -65,40 +54,19 @@ jobs:
         fi
         cd ..
 
-    - name: Fix trace.h for Clang build
+    - name: Fix trace.h for build
       run: |
         cd kernel
         MAKEFILE="drivers/clk/qcom/Makefile"
         if [ -f "$MAKEFILE" ]; then
           if ! grep -q "ccflags-y.*-I\$(src)" "$MAKEFILE"; then
             echo 'ccflags-y += -I$(src)' >> "$MAKEFILE"
-            echo "Added -I\$(src) to $MAKEFILE"
           fi
         fi
-
-        MAKEFILE2="drivers/thermal/qcom/Makefile"
-        if [ -f "$MAKEFILE2" ]; then
-          if ! grep -q "ccflags-y.*-I\$(src)" "$MAKEFILE2"; then
-            echo 'ccflags-y += -I$(src)' >> "$MAKEFILE2"
-            echo "Added -I\$(src) to $MAKEFILE2"
-          fi
-        fi
-
         TRACE_FILE="drivers/clk/qcom/trace.h"
         if [ -f "$TRACE_FILE" ]; then
           sed -i 's|#define TRACE_INCLUDE_PATH .*|#define TRACE_INCLUDE_PATH .|' "$TRACE_FILE"
-          echo "Reset TRACE_INCLUDE_PATH in $TRACE_FILE"
         fi
-
-        SDHCI_FILE="drivers/mmc/host/sdhci-msm.c"
-        if [ -f "$SDHCI_FILE" ]; then
-          sed -i 's/^static int sdhci_msm_ice_disable/static void sdhci_msm_ice_disable/' "$SDHCI_FILE"
-          echo "Fixed void return in $SDHCI_FILE"
-        fi
-
-        echo 'KBUILD_CFLAGS += -w' >> Makefile
-        echo 'KBUILD_AFLAGS += -w' >> Makefile
-        echo "Added -w to top-level Makefile"
         cd ..
 
     - name: Configure kernel
@@ -119,6 +87,7 @@ jobs:
     - name: Add WiFi injection config
       run: |
         cd kernel
+        sed -i '$d' .config
         cat >> .config << 'EOF'
         CONFIG_MAC80211=y
         CONFIG_CFG80211=y
@@ -133,26 +102,15 @@ jobs:
         make ARCH=arm64 olddefconfig
         cd ..
 
-    - name: Build kernel
+    - name: Build kernel with GCC
       run: |
         cd kernel
-        TOOLCHAIN="../toolchains/clang/bin"
-        if [ ! -d "$TOOLCHAIN" ]; then
-          TOOLCHAIN="../toolchains/bin"
-        fi
-        if [ ! -d "$TOOLCHAIN" ]; then
-          TOOLCHAIN="../toolchains/llvm/bin"
-        fi
-        echo "Using toolchain: $TOOLCHAIN"
-        export PATH=$(realpath $TOOLCHAIN):$PATH
-        which clang && clang --version | head -2
+        export ARCH=arm64
+        export CROSS_COMPILE=aarch64-linux-gnu-
 
         make -j$(nproc) \
           ARCH=arm64 \
-          CC=clang \
           CROSS_COMPILE=aarch64-linux-gnu- \
-          CLANG_TRIPLE=aarch64-linux-gnu- \
-          KCFLAGS="-w" \
           Image.gz 2>&1 | tee ../build.log
 
         ls -lh arch/arm64/boot/Image.gz
