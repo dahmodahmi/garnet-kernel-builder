@@ -77,12 +77,23 @@ jobs:
         make ARCH=arm64 clean
         make ARCH=arm64 mrproper
 
-        DEFCONFIG=$(ls arch/arm64/configs/ | grep -iE "garnet|monet" | head -1)
-        echo "Defconfig: $DEFCONFIG"
+        echo "=== All defconfigs ==="
+        find arch/arm64/configs -type f -name "*defconfig*" 2>/dev/null
+        find vendor -type f -name "*defconfig*" 2>/dev/null | head -20
+        find . -type f -name "*garnet*defconfig*" -o -name "*sm7435*defconfig*" 2>/dev/null | head -10
+
+        DEFCONFIG=$(find arch/arm64/configs vendor -type f \( -name "*garnet*defconfig*" -o -name "*sm7435*defconfig*" \) 2>/dev/null | head -1)
         if [ -z "$DEFCONFIG" ]; then
-          make ARCH=arm64 defconfig
+          DEFCONFIG=$(ls arch/arm64/configs/ | grep -iE "garnet|monet" | head -1)
+        fi
+        echo "Defconfig: $DEFCONFIG"
+
+        if [ -n "$DEFCONFIG" ]; then
+          make ARCH=arm64 "$(basename $DEFCONFIG .defconfig)" 2>/dev/null || make ARCH=arm64 "$DEFCONFIG"
         else
-          make ARCH=arm64 "$DEFCONFIG"
+          echo "Using gki_defconfig..."
+          make ARCH=arm64 gki_defconfig
+          make ARCH=arm64 vendor/garnet_defconfig 2>/dev/null || true
         fi
         cd ..
 
