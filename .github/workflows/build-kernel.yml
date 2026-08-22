@@ -118,8 +118,13 @@ jobs:
         CONFIG_BPF_JIT=y
         CONFIG_MODULES=y
         CONFIG_MODULE_UNLOAD=y
+        CONFIG_WERROR=n
         EOF
+        sed -i 's/CONFIG_WERROR=y/CONFIG_WERROR=n/g' .config
         make ARCH=arm64 olddefconfig
+        sed -i 's/CONFIG_WERROR=y/CONFIG_WERROR=n/g' .config
+        make ARCH=arm64 olddefconfig
+        grep "CONFIG_WERROR" .config
         cd ..
 
     - name: Build kernel with GCC
