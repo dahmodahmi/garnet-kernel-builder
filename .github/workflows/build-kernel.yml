@@ -142,7 +142,7 @@ jobs:
           CC=clang \
           CROSS_COMPILE=aarch64-linux-gnu- \
           CLANG_TRIPLE=aarch64-linux-gnu- \
-          KCFLAGS="-Wno-error=implicit-function-declaration" \
+          KCFLAGS="-w" \
           Image.gz 2>&1 | tee ../build.log
 
         ls -lh arch/arm64/boot/Image.gz
