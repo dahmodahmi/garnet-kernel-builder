@@ -68,13 +68,19 @@ jobs:
     - name: Fix trace.h for Clang build
       run: |
         cd kernel
+        MAKEFILE="drivers/clk/qcom/Makefile"
+        if [ -f "$MAKEFILE" ]; then
+          if ! grep -q "ccflags-y.*-I\$(src)" "$MAKEFILE"; then
+            echo 'ccflags-y += -I$(src)' >> "$MAKEFILE"
+            echo "Added -I\$(src) to $MAKEFILE"
+          fi
+        fi
+
         TRACE_FILE="drivers/clk/qcom/trace.h"
         if [ -f "$TRACE_FILE" ]; then
-          echo "#ifndef _TRACE_CLK_QCOM_H" > "${TRACE_FILE}.tmp"
-          echo "#define _TRACE_CLK_QCOM_H" >> "${TRACE_FILE}.tmp"
-          echo "#endif" >> "${TRACE_FILE}.tmp"
-          mv "${TRACE_FILE}.tmp" "$TRACE_FILE"
-          echo "Stubbed $TRACE_FILE to fix Clang trace include error"
+          sed -i 's|#define TRACE_INCLUDE_PATH .*|#define TRACE_INCLUDE_PATH .|' "$TRACE_FILE"
+          echo "Reset TRACE_INCLUDE_PATH in $TRACE_FILE"
+          grep "TRACE_INCLUDE" "$TRACE_FILE"
         fi
         cd ..
 
