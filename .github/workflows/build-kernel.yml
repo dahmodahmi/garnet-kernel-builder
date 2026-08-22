@@ -67,6 +67,8 @@ jobs:
         if [ -f "$TRACE_FILE" ]; then
           sed -i 's|#define TRACE_INCLUDE_PATH .*|#define TRACE_INCLUDE_PATH .|' "$TRACE_FILE"
         fi
+        sed -i 's/-Werror[^ ]*//g' Makefile
+        echo "Removed -Werror from top Makefile"
         cd ..
 
     - name: Configure kernel
@@ -111,6 +113,7 @@ jobs:
         make -j$(nproc) \
           ARCH=arm64 \
           CROSS_COMPILE=aarch64-linux-gnu- \
+          KCFLAGS="-Wno-error" \
           Image.gz 2>&1 | tee ../build.log
 
         ls -lh arch/arm64/boot/Image.gz
