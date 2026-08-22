@@ -39,7 +39,14 @@ jobs:
         cd toolchains
         wget -q https://github.com/ZyCromerZ/Clang/releases/download/23.0.0git-20260130-release/Clang-23.0.0git-20260130.tar.gz
         tar -xzf Clang-23.0.0git-20260130.tar.gz
-        chmod +x clang/bin/*
+        ls -la
+        find . -name "clang" -type f | head -5
+        if [ -d "clang/bin" ]; then
+          chmod +x clang/bin/*
+        else
+          echo "clang/bin not found, checking structure..."
+          ls -la
+        fi
 
     - name: Clone kernel source
       run: |
@@ -99,8 +106,16 @@ jobs:
     - name: Build kernel
       run: |
         cd kernel
-        TOOLCHAIN=../toolchains/clang/bin
-        export PATH=$TOOLCHAIN:$PATH
+        TOOLCHAIN="../toolchains/clang/bin"
+        if [ ! -d "$TOOLCHAIN" ]; then
+          TOOLCHAIN="../toolchains/bin"
+        fi
+        if [ ! -d "$TOOLCHAIN" ]; then
+          TOOLCHAIN="../toolchains/llvm/bin"
+        fi
+        echo "Using toolchain: $TOOLCHAIN"
+        ls -la $TOOLCHAIN | head -5
+        export PATH=$(realpath $TOOLCHAIN):$PATH
 
         make -j$(nproc) \
           ARCH=arm64 \
