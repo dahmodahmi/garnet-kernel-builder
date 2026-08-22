@@ -76,11 +76,18 @@ jobs:
           fi
         fi
 
+        MAKEFILE2="drivers/thermal/qcom/Makefile"
+        if [ -f "$MAKEFILE2" ]; then
+          if ! grep -q "ccflags-y.*-I\$(src)" "$MAKEFILE2"; then
+            echo 'ccflags-y += -I$(src)' >> "$MAKEFILE2"
+            echo "Added -I\$(src) to $MAKEFILE2"
+          fi
+        fi
+
         TRACE_FILE="drivers/clk/qcom/trace.h"
         if [ -f "$TRACE_FILE" ]; then
           sed -i 's|#define TRACE_INCLUDE_PATH .*|#define TRACE_INCLUDE_PATH .|' "$TRACE_FILE"
           echo "Reset TRACE_INCLUDE_PATH in $TRACE_FILE"
-          grep "TRACE_INCLUDE" "$TRACE_FILE"
         fi
         cd ..
 
@@ -135,6 +142,7 @@ jobs:
           CC=clang \
           CROSS_COMPILE=aarch64-linux-gnu- \
           CLANG_TRIPLE=aarch64-linux-gnu- \
+          KCFLAGS="-Wno-error=implicit-function-declaration" \
           Image.gz 2>&1 | tee ../build.log
 
         ls -lh arch/arm64/boot/Image.gz
