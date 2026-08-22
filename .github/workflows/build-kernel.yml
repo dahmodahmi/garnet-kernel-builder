@@ -89,6 +89,16 @@ jobs:
           sed -i 's|#define TRACE_INCLUDE_PATH .*|#define TRACE_INCLUDE_PATH .|' "$TRACE_FILE"
           echo "Reset TRACE_INCLUDE_PATH in $TRACE_FILE"
         fi
+
+        SDHCI_FILE="drivers/mmc/host/sdhci-msm.c"
+        if [ -f "$SDHCI_FILE" ]; then
+          sed -i 's/^static int sdhci_msm_ice_disable/static void sdhci_msm_ice_disable/' "$SDHCI_FILE"
+          echo "Fixed void return in $SDHCI_FILE"
+        fi
+
+        echo 'KBUILD_CFLAGS += -w' >> Makefile
+        echo 'KBUILD_AFLAGS += -w' >> Makefile
+        echo "Added -w to top-level Makefile"
         cd ..
 
     - name: Configure kernel
