@@ -1,0 +1,138 @@
+name: Build Kernel Garnet (Poco X6 5G)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      kernel_source:
+        description: Kernel source repo URL
+        required: false
+        default: https://github.com/Evolution-X-Devices/kernel_xiaomi_garnet.git
+      kernel_branch:
+        description: Kernel branch
+        required: false
+        default: bka
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup build environment
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          git curl wget zip unzip ccache lz4 xz-utils \
+          flex bison libssl-dev libelf-dev bc libncurses-dev \
+          python3 python3-pip python-is-python3 \
+          gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+          device-tree-compiler cpio rsync dos2unix
+
+    - name: Install Clang toolchain
+      run: |
+        mkdir -p toolchains
+        cd toolchains
+        wget -q https://github.com/ZyCromerZ/Clang/releases/download/23.0.0git-20260130-release/Clang-23.0.0git-20260130.tar.gz
+        tar -xzf Clang-23.0.0git-20260130.tar.gz
+        chmod +x clang/bin/*
+
+    - name: Clone kernel source
+      run: |
+        KERNEL_SRC="${{ github.event.inputs.kernel_source || 'https://github.com/Evolution-X-Devices/kernel_xiaomi_garnet.git' }}"
+        KERNEL_BRANCH="${{ github.event.inputs.kernel_branch || 'bka' }}"
+        git clone --depth=1 -b "$KERNEL_BRANCH" "$KERNEL_SRC" kernel
+        ls kernel/arch/arm64/configs/ | head -20
+
+    - name: Download WiFi injection patch
+      run: |
+        git clone --depth=1 https://github.com/kimocoder/qualcomm_android_monitor_mode.git patches
+
+    - name: Apply WiFi injection patches
+      run: |
+        cd kernel
+        QCACLD_DIR=$(find . -type d -name "qcacld-3*" 2>/dev/null | head -1)
+        echo "QCACLD dir: $QCACLD_DIR"
+        if [ -n "$QCACLD_DIR" ] && [ -d "../patches/patches" ]; then
+          cp -r ../patches/patches/* "$QCACLD_DIR/" 2>/dev/null || true
+          echo "Patches applied"
+        fi
+        cd ..
+
+    - name: Configure kernel
+      run: |
+        cd kernel
+        make ARCH=arm64 clean
+        make ARCH=arm64 mrproper
+
+        DEFCONFIG=$(ls arch/arm64/configs/ | grep -iE "garnet|monet" | head -1)
+        echo "Defconfig: $DEFCONFIG"
+        if [ -z "$DEFCONFIG" ]; then
+          make ARCH=arm64 defconfig
+        else
+          make ARCH=arm64 "$DEFCONFIG"
+        fi
+        cd ..
+
+    - name: Add WiFi injection config
+      run: |
+        cat kernel/.config | grep -q "CONFIG_MAC80211" || \
+        cat >> kernel/.config << 'EOF'
+        CONFIG_MAC80211=y
+        CONFIG_CFG80211=y
+        CONFIG_CFG80211_WEXT=y
+        CONFIG_DEBUG_INFO_BTF=y
+        CONFIG_DEBUG_INFO_BTF_MODULES=y
+        CONFIG_BPF_SYSCALL=y
+        CONFIG_BPF_JIT=y
+        CONFIG_MODULES=y
+        CONFIG_MODULE_UNLOAD=y
+        EOF
+        cd kernel
+        make ARCH=arm64 olddefconfig
+        cd ..
+
+    - name: Build kernel
+      run: |
+        cd kernel
+        TOOLCHAIN=../toolchains/clang/bin
+        export PATH=$TOOLCHAIN:$PATH
+
+        make -j$(nproc) \
+          ARCH=arm64 \
+          CC=clang \
+          CROSS_COMPILE=aarch64-linux-gnu- \
+          CLANG_TRIPLE=aarch64-linux-gnu- \
+          Image.gz 2>&1 | tee ../build.log
+
+        ls -lh arch/arm64/boot/Image.gz
+
+    - name: Create AnyKernel3 ZIP
+      run: |
+        git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel3
+        cd anykernel3
+
+        sed -i 's/do.devicecheck=1/do.devicecheck=0/' anykernel.sh
+        sed -i 's/is_slot_device=1/is_slot_device=1/' anykernel.sh
+        sed -i 's/device.name1=.*/device.name1=garnet/' anykernel.sh
+        sed -i 's/device.name2=.*/device.name2=monet/' anykernel.sh
+        sed -i 's|block=.*|block=auto|' anykernel.sh
+
+        cp ../kernel/arch/arm64/boot/Image.gz ./Image.gz
+
+        mkdir -p dtb
+        cp ../kernel/arch/arm64/boot/dts/qcom/*.dtb ./dtb/ 2>/dev/null || true
+
+        zip -r9 ../Garnet-Kernel-WiFi-Injection.zip . -x '*.git*'
+        ls -lh ../Garnet-Kernel-WiFi-Injection.zip
+
+    - name: Upload kernel artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Garnet-Kernel-WiFi-Injection
+        path: Garnet-Kernel-WiFi-Injection.zip
+        retention-days: 14
