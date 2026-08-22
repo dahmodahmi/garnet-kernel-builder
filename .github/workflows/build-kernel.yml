@@ -98,10 +98,23 @@ jobs:
         CONFIG_BPF_JIT=y
         CONFIG_MODULES=y
         CONFIG_MODULE_UNLOAD=y
-        CONFIG_QCOM_CLK_DEBUG=n
         EOF
         cd kernel
         make ARCH=arm64 olddefconfig
+        sed -i 's/CONFIG_QCOM_CLK_DEBUG=y/CONFIG_QCOM_CLK_DEBUG=n/g' .config
+        sed -i 's/CONFIG_QCOM_CLK_DEBUG=m/CONFIG_QCOM_CLK_DEBUG=n/g' .config
+        make ARCH=arm64 olddefconfig
+        cd ..
+
+    - name: Fix trace.h include path
+      run: |
+        cd kernel
+        TRACE_FILE="drivers/clk/qcom/trace.h"
+        if [ -f "$TRACE_FILE" ]; then
+          sed -i 's|#define TRACE_INCLUDE_PATH .*|#define TRACE_INCLUDE_PATH drivers/clk/qcom|' "$TRACE_FILE"
+          echo "Patched $TRACE_FILE"
+          grep "TRACE_INCLUDE_PATH" "$TRACE_FILE"
+        fi
         cd ..
 
     - name: Build kernel
@@ -123,6 +136,7 @@ jobs:
           CC=clang \
           CROSS_COMPILE=aarch64-linux-gnu- \
           CLANG_TRIPLE=aarch64-linux-gnu- \
+          EXTRA_CFLAGS="-I\$(srctree)/\$(src)" \
           Image.gz 2>&1 | tee ../build.log
 
         ls -lh arch/arm64/boot/Image.gz
