@@ -1,8 +1,6 @@
 name: Build Kernel Garnet (Poco X6 5G)
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
     inputs:
       kernel_source:
@@ -39,21 +37,18 @@ jobs:
         cd toolchains
         wget -q https://github.com/ZyCromerZ/Clang/releases/download/23.0.0git-20260130-release/Clang-23.0.0git-20260130.tar.gz
         tar -xzf Clang-23.0.0git-20260130.tar.gz
-        ls -la
-        find . -name "clang" -type f | head -5
         if [ -d "clang/bin" ]; then
           chmod +x clang/bin/*
-        else
-          echo "clang/bin not found, checking structure..."
-          ls -la
         fi
+        ls -la
 
     - name: Clone kernel source
       run: |
         KERNEL_SRC="${{ github.event.inputs.kernel_source || 'https://github.com/Evolution-X-Devices/kernel_xiaomi_garnet.git' }}"
         KERNEL_BRANCH="${{ github.event.inputs.kernel_branch || 'bka' }}"
         git clone --depth=1 -b "$KERNEL_BRANCH" "$KERNEL_SRC" kernel
-        ls kernel/arch/arm64/configs/ | head -20
+        echo "=== Available defconfigs ==="
+        ls kernel/arch/arm64/configs/ | grep -iE "garnet|monet|qcom|sm7435" || ls kernel/arch/arm64/configs/ | head -20
 
     - name: Download WiFi injection patch
       run: |
@@ -67,6 +62,19 @@ jobs:
         if [ -n "$QCACLD_DIR" ] && [ -d "../patches/patches" ]; then
           cp -r ../patches/patches/* "$QCACLD_DIR/" 2>/dev/null || true
           echo "Patches applied"
+        fi
+        cd ..
+
+    - name: Fix trace.h for Clang build
+      run: |
+        cd kernel
+        TRACE_FILE="drivers/clk/qcom/trace.h"
+        if [ -f "$TRACE_FILE" ]; then
+          echo "#ifndef _TRACE_CLK_QCOM_H" > "${TRACE_FILE}.tmp"
+          echo "#define _TRACE_CLK_QCOM_H" >> "${TRACE_FILE}.tmp"
+          echo "#endif" >> "${TRACE_FILE}.tmp"
+          mv "${TRACE_FILE}.tmp" "$TRACE_FILE"
+          echo "Stubbed $TRACE_FILE to fix Clang trace include error"
         fi
         cd ..
 
@@ -87,8 +95,8 @@ jobs:
 
     - name: Add WiFi injection config
       run: |
-        cat kernel/.config | grep -q "CONFIG_MAC80211" || \
-        cat >> kernel/.config << 'EOF'
+        cd kernel
+        cat >> .config << 'EOF'
         CONFIG_MAC80211=y
         CONFIG_CFG80211=y
         CONFIG_CFG80211_WEXT=y
@@ -99,22 +107,7 @@ jobs:
         CONFIG_MODULES=y
         CONFIG_MODULE_UNLOAD=y
         EOF
-        cd kernel
         make ARCH=arm64 olddefconfig
-        sed -i 's/CONFIG_QCOM_CLK_DEBUG=y/CONFIG_QCOM_CLK_DEBUG=n/g' .config
-        sed -i 's/CONFIG_QCOM_CLK_DEBUG=m/CONFIG_QCOM_CLK_DEBUG=n/g' .config
-        make ARCH=arm64 olddefconfig
-        cd ..
-
-    - name: Fix trace.h include path
-      run: |
-        cd kernel
-        TRACE_FILE="drivers/clk/qcom/trace.h"
-        if [ -f "$TRACE_FILE" ]; then
-          sed -i 's|#define TRACE_INCLUDE_PATH .*|#define TRACE_INCLUDE_PATH drivers/clk/qcom|' "$TRACE_FILE"
-          echo "Patched $TRACE_FILE"
-          grep "TRACE_INCLUDE_PATH" "$TRACE_FILE"
-        fi
         cd ..
 
     - name: Build kernel
@@ -128,15 +121,14 @@ jobs:
           TOOLCHAIN="../toolchains/llvm/bin"
         fi
         echo "Using toolchain: $TOOLCHAIN"
-        ls -la $TOOLCHAIN | head -5
         export PATH=$(realpath $TOOLCHAIN):$PATH
+        which clang && clang --version | head -2
 
         make -j$(nproc) \
           ARCH=arm64 \
           CC=clang \
           CROSS_COMPILE=aarch64-linux-gnu- \
           CLANG_TRIPLE=aarch64-linux-gnu- \
-          EXTRA_CFLAGS="-I\$(srctree)/\$(src)" \
           Image.gz 2>&1 | tee ../build.log
 
         ls -lh arch/arm64/boot/Image.gz
@@ -144,8 +136,8 @@ jobs:
     - name: Build log on failure
       if: failure()
       run: |
-        echo "=== Last 50 lines of build log ==="
-        tail -50 build.log 2>/dev/null || echo "No build log"
+        echo "=== Last 80 lines of build log ==="
+        tail -80 build.log 2>/dev/null || echo "No build log"
 
     - name: Create AnyKernel3 ZIP
       run: |
