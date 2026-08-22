@@ -36,8 +36,21 @@ jobs:
         KERNEL_SRC="${{ github.event.inputs.kernel_source || 'https://github.com/Evolution-X-Devices/kernel_xiaomi_garnet.git' }}"
         KERNEL_BRANCH="${{ github.event.inputs.kernel_branch || 'bka' }}"
         git clone --depth=1 -b "$KERNEL_BRANCH" "$KERNEL_SRC" kernel
-        echo "=== Available defconfigs ==="
-        ls kernel/arch/arm64/configs/ | grep -iE "garnet|monet|qcom|sm7435" || ls kernel/arch/arm64/configs/ | head -20
+
+    - name: Inspect kernel source
+      run: |
+        cd kernel
+        echo "=== arch/arm64/configs ==="
+        ls arch/arm64/configs/ 2>/dev/null
+        echo "=== vendor/ ==="
+        ls vendor/ 2>/dev/null | head -20
+        echo "=== vendor defconfigs ==="
+        find vendor -type f -name "*defconfig*" 2>/dev/null | head -20
+        echo "=== garnet/sm7435 configs ==="
+        find . -type f \( -name "*garnet*" -o -name "*sm7435*" \) -path "*/defconfig*" 2>/dev/null | head -10
+        find . -type f \( -name "*garnet*" -o -name "*sm7435*" \) -name "*.config" 2>/dev/null | head -10
+        find . -type f -name "defconfig" -path "*/vendor/*" 2>/dev/null | head -10
+        cd ..
 
     - name: Download WiFi injection patch
       run: |
@@ -59,16 +72,12 @@ jobs:
         cd kernel
         MAKEFILE="drivers/clk/qcom/Makefile"
         if [ -f "$MAKEFILE" ]; then
-          if ! grep -q "ccflags-y.*-I\$(src)" "$MAKEFILE"; then
-            echo 'ccflags-y += -I$(src)' >> "$MAKEFILE"
-          fi
+          echo 'ccflags-y += -I$(src)' >> "$MAKEFILE"
         fi
         TRACE_FILE="drivers/clk/qcom/trace.h"
         if [ -f "$TRACE_FILE" ]; then
           sed -i 's|#define TRACE_INCLUDE_PATH .*|#define TRACE_INCLUDE_PATH .|' "$TRACE_FILE"
         fi
-        sed -i 's/-Werror[^ ]*//g' Makefile
-        echo "Removed -Werror from top Makefile"
         cd ..
 
     - name: Configure kernel
@@ -77,30 +86,28 @@ jobs:
         make ARCH=arm64 clean
         make ARCH=arm64 mrproper
 
-        echo "=== All defconfigs ==="
-        find arch/arm64/configs -type f -name "*defconfig*" 2>/dev/null
-        find vendor -type f -name "*defconfig*" 2>/dev/null | head -20
-        find . -type f -name "*garnet*defconfig*" -o -name "*sm7435*defconfig*" 2>/dev/null | head -10
-
-        DEFCONFIG=$(find arch/arm64/configs vendor -type f \( -name "*garnet*defconfig*" -o -name "*sm7435*defconfig*" \) 2>/dev/null | head -1)
-        if [ -z "$DEFCONFIG" ]; then
-          DEFCONFIG=$(ls arch/arm64/configs/ | grep -iE "garnet|monet" | head -1)
+        DEFCONFIG=""
+        if [ -f "arch/arm64/configs/garnet_defconfig" ]; then
+          DEFCONFIG="garnet_defconfig"
+        elif [ -f "vendor/qcom/proprietary/vendor-sm7435-qgki_defconfig" ]; then
+          DEFCONFIG="vendor/qcom/proprietary/vendor-sm7435-qgki_defconfig"
+        elif [ -f "vendor/qcom/proprietary/vendor_sm7435-qgki_defconfig" ]; then
+          DEFCONFIG="vendor/qcom/proprietary/vendor_sm7435-qgki_defconfig"
         fi
-        echo "Defconfig: $DEFCONFIG"
 
         if [ -n "$DEFCONFIG" ]; then
-          make ARCH=arm64 "$(basename $DEFCONFIG .defconfig)" 2>/dev/null || make ARCH=arm64 "$DEFCONFIG"
+          echo "Using defconfig: $DEFCONFIG"
+          make ARCH=arm64 "$DEFCONFIG"
         else
-          echo "Using gki_defconfig..."
+          echo "No garnet defconfig found, using gki_defconfig"
           make ARCH=arm64 gki_defconfig
-          make ARCH=arm64 vendor/garnet_defconfig 2>/dev/null || true
         fi
+        ls -la .config
         cd ..
 
     - name: Add WiFi injection config
       run: |
         cd kernel
-        sed -i '$d' .config
         cat >> .config << 'EOF'
         CONFIG_MAC80211=y
         CONFIG_CFG80211=y
@@ -118,9 +125,6 @@ jobs:
     - name: Build kernel with GCC
       run: |
         cd kernel
-        export ARCH=arm64
-        export CROSS_COMPILE=aarch64-linux-gnu-
-
         make -j$(nproc) \
           ARCH=arm64 \
           CROSS_COMPILE=aarch64-linux-gnu- \
@@ -136,6 +140,7 @@ jobs:
         tail -80 build.log 2>/dev/null || echo "No build log"
 
     - name: Create AnyKernel3 ZIP
+      if: success()
       run: |
         git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel3
         cd anykernel3
